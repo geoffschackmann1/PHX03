@@ -107,7 +107,7 @@ def build_workbook(
         "BP Hrs", "Act Hrs", "Util %", "Pts/Hr",
         "Patients", "Vis/Pt",
         "% SOC", "% Routine",
-        "OT %", "Accuracy %", "Missed %",
+        "On-Time %", "Accuracy %", "Missed %",
         "Total Cost", "CPV",
     ]
     hr = 4
