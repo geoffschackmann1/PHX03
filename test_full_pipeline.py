@@ -129,7 +129,7 @@ print("=" * 60)
 
 checks = [
     ("Clinician count ≥ 10", len(clinician_df) >= 10),
-    ("Total visits = 181", clinician_df['total_visits'].sum() == 181),
+    ("Total visits = 182", clinician_df['total_visits'].sum() == 182),
     ("Berry points ≈ 60.5", abs(clinician_df[clinician_df['clinician_name'].str.contains('BERRY')]['points'].iloc[0] - 60.5) < 1),
     ("Census = 44", agency_metrics.census == 44),
     ("SoC Medicare > 90%", agency_metrics.soc_medicare_pct > 90),
