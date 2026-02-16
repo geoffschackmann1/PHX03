@@ -370,7 +370,7 @@ def run_test():
 
         # Verify clinician scorecard data rows
         ws1 = wb["Clinician Scorecard"]
-        data_rows = ws1.max_row - 4  # subtract header rows
+        data_rows = ws1.max_row - 5  # subtract header rows (title, date, version, blank, column headers)
         assert data_rows == 15, f"Expected 15 data rows, got {data_rows}"
         print(f"  PASS: Clinician Scorecard has {data_rows} rows")
 

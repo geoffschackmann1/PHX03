@@ -99,6 +99,20 @@ def build_clinician_scorecard(
         df["_join_name"] = df["clinician_name"].str.upper().str.strip()
         payroll["_join_name"] = payroll["clinician_name"].str.upper().str.strip()
 
+        # Apply name aliases (iSolved name -> Snowflake name)
+        if CLINICIAN_NAME_ALIASES:
+            payroll["_join_name"] = payroll["_join_name"].replace(CLINICIAN_NAME_ALIASES)
+
+        # Log unmatched names for debugging
+        sf_names = set(df["_join_name"].dropna())
+        pr_names = set(payroll["_join_name"].dropna())
+        unmatched_pr = pr_names - sf_names
+        unmatched_sf = sf_names - pr_names
+        if unmatched_pr:
+            logger.warning(f"iSolved names not in Snowflake: {sorted(unmatched_pr)}")
+        if unmatched_sf:
+            logger.info(f"Snowflake clinicians without payroll data: {sorted(unmatched_sf)}")
+
         payroll_cols = [
             "_join_name", "regular_hours", "overtime_hours", "gross_wages",
             "mileage", "total_cost", "vacation_hours", "pto_hours",

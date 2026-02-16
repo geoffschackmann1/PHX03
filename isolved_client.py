@@ -127,38 +127,49 @@ class CSVPayrollAdapter(PayrollAdapter):
     def _parse_payroll_register(self, filepath: Path) -> pd.DataFrame:
         """
         Parse iSolved Payroll Register export.
-        These have a specific format with employee sections and earnings detail lines.
+        Handles multiple iSolved report formats:
+        - Employee Earnings Summary (Gross Wage, 1099/Exp Reimburse, etc.)
+        - Detailed Payroll Register (hours, earnings codes)
+        - Standard tabular CSV with recognizable column names
         """
         logger.info(f"Parsing iSolved CSV: {filepath}")
 
         # Try standard CSV parse first
         try:
-            raw = pd.read_csv(filepath)
+            raw = pd.read_csv(filepath, thousands=",")
         except Exception:
             # iSolved PDFs converted to CSV may have irregular format
             # Fall back to line-by-line parsing
             return self._parse_payroll_register_manual(filepath)
 
-        # If it has standard columns, process normally
-        if "Employee" in raw.columns or "employee_name" in raw.columns:
+        # Strip whitespace from column names
+        raw.columns = raw.columns.str.strip()
+
+        # Drop "Report Totals" rows
+        for col in raw.columns:
+            if raw[col].dtype == object:
+                raw = raw[~raw[col].astype(str).str.contains("Report Totals", na=False)]
+                break
+
+        # Detect format by column names
+        cols_lower = {c.lower().strip() for c in raw.columns}
+        has_name_col = any(
+            "name" in c or "employee" in c
+            for c in cols_lower
+        )
+
+        if has_name_col:
             return self._normalize_standard_csv(raw)
 
         # Otherwise try manual parsing
         return self._parse_payroll_register_manual(filepath)
 
-    # Column name patterns -> standardized names
-    # Order matters: more specific patterns first to avoid false matches
+    # Column name mapping: iSolved column name (lowercase) -> standardized name
+    # Uses substring matching: (pattern, secondary_pattern_or_None, target)
+    # If secondary is set, BOTH must match. If None, only primary must match.
     COLUMN_PATTERNS = [
-        # Identity
+        # Identity — handle "Employee Name", "Name", "Employee", etc.
         ("employee", "name", "clinician_name"),
-        ("associate", None, "associate_id"),
-        ("emp_id", None, "associate_id"),
-        ("employee_id", None, "associate_id"),
-        ("agency", None, "agency"),
-        ("discipline", None, "discipline"),
-        ("pay_type", None, "pay_type"),
-        ("pay type", None, "pay_type"),
-        ("status", None, "status"),
         # Hours
         ("regular", "hour", "regular_hours"),
         ("overtime", "hour", "overtime_hours"),
@@ -167,7 +178,6 @@ class CSVPayrollAdapter(PayrollAdapter):
         # Pay
         ("pay_rate", None, "pay_rate"),
         ("pay rate", None, "pay_rate"),
-        ("gross", None, "gross_wages"),
         ("mileage", None, "mileage"),
         # Time off
         ("vacation", None, "vacation_hours"),
@@ -192,11 +202,44 @@ class CSVPayrollAdapter(PayrollAdapter):
         ("hh pta visit", None, "isolved_pta_visit_ct"),
     ]
 
+    # Exact column name overrides for Employee Earnings Summary format
+    EXACT_COLUMN_MAP = {
+        "emp #": "associate_id",
+        "employee name": "clinician_name",
+        "name": "clinician_name",
+        "gross wage": "gross_wages",
+        "gross wages": "gross_wages",
+        "1099/exp reimburse": "mileage",
+        "paid earnings": "_paid_earnings",  # duplicate of gross, ignored
+        "agency": "agency",
+        "discipline": "discipline",
+        "pay_type": "pay_type",
+        "pay type": "pay_type",
+        "status": "status",
+        "associate": "associate_id",
+        "emp_id": "associate_id",
+        "employee_id": "associate_id",
+        "gross": "gross_wages",
+    }
+
     def _normalize_standard_csv(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Normalize a standard tabular CSV export."""
+        """Normalize a standard tabular CSV export from any iSolved report format."""
         col_map = {}
-        mapped_targets = set()  # avoid double-mapping to same target
+        mapped_targets = set()
+
+        # Pass 1: exact column name match (handles iSolved-specific headers)
         for col in df.columns:
+            cl = col.lower().strip()
+            if cl in self.EXACT_COLUMN_MAP:
+                target = self.EXACT_COLUMN_MAP[cl]
+                if target not in mapped_targets:
+                    col_map[col] = target
+                    mapped_targets.add(target)
+
+        # Pass 2: substring pattern match for remaining columns
+        for col in df.columns:
+            if col in col_map:
+                continue
             cl = col.lower().strip()
             for primary, secondary, target in self.COLUMN_PATTERNS:
                 if target in mapped_targets:
@@ -214,9 +257,28 @@ class CSVPayrollAdapter(PayrollAdapter):
 
         df = df.rename(columns=col_map)
 
-        # Uppercase clinician names for consistent merge
+        # Drop internal-only columns
+        df.drop(columns=["_paid_earnings"], inplace=True, errors="ignore")
+
+        # Strip commas from numeric strings and convert
+        for col in df.columns:
+            if col == "clinician_name" or col == "associate_id":
+                continue
+            if df[col].dtype == object:
+                df[col] = df[col].astype(str).str.replace(",", "", regex=False)
+                df[col] = pd.to_numeric(df[col], errors="coerce")
+
+        # Convert "Last, First Middle" -> "FIRST LAST" for Snowflake merge
         if "clinician_name" in df.columns:
-            df["clinician_name"] = df["clinician_name"].astype(str).str.upper().str.strip()
+            df["clinician_name"] = df["clinician_name"].apply(self._normalize_name)
+
+        # Filter out zero-wage inactive employees
+        if "gross_wages" in df.columns:
+            before = len(df)
+            df = df[df["gross_wages"] > 0].copy()
+            dropped = before - len(df)
+            if dropped:
+                logger.info(f"Filtered {dropped} zero-wage employees (inactive)")
 
         # Sum assistant visit columns into isolved_visit_ct if present
         for aux_col in ["isolved_lpn_visit_ct", "isolved_pta_visit_ct"]:
@@ -225,10 +287,30 @@ class CSVPayrollAdapter(PayrollAdapter):
                 df["isolved_visit_ct"] = df.get("isolved_visit_ct", 0) + df[aux_col]
                 df.drop(columns=[aux_col], inplace=True)
 
-        # Compute total_cost and time_off_hours
         df = self._fill_defaults(df)
         df = self._compute_derived(df)
+
+        logger.info(f"Parsed {len(df)} employees from iSolved CSV")
+        for _, row in df.iterrows():
+            logger.debug(f"  {row['clinician_name']}: gross={row['gross_wages']}, "
+                         f"mileage={row['mileage']}, total_cost={row['total_cost']}")
+
         return df
+
+    @staticmethod
+    def _normalize_name(name: str) -> str:
+        """Convert 'Last, First Middle' to 'FIRST LAST' (uppercase) for Snowflake merge."""
+        if pd.isna(name) or not name:
+            return ""
+        name = str(name).strip().upper()
+        if "," in name:
+            parts = name.split(",", 1)
+            last = parts[0].strip()
+            first_parts = parts[1].strip().split()
+            # Take just the first name (drop middle initial/name)
+            first = first_parts[0] if first_parts else ""
+            return f"{first} {last}"
+        return name
 
     def _compute_derived(self, df: pd.DataFrame) -> pd.DataFrame:
         """Compute total_cost and time_off_hours from component columns."""
