@@ -8,7 +8,7 @@ sys.path.insert(0, '.')
 from load_env import load_dotenv
 load_dotenv()
 
-from config import SNOWFLAKE_CONFIG, get_pay_period
+from config import SNOWFLAKE_CONFIG, CLINIC_KEY, AGENCY, get_pay_period
 from snowflake_client import SnowflakeClient
 
 print("=" * 50)
@@ -18,13 +18,13 @@ print("=" * 50)
 # Use PP4 — the period we validated manually
 pp = get_pay_period(4)
 print(f"\nPay Period: {pp['label']} ({pp['range_str']})")
-print(f"Clinic Key: 3743 (American Premier)")
+print(f"Agency: {AGENCY.name} (CK={CLINIC_KEY})")
 print()
 
 sf = SnowflakeClient(SNOWFLAKE_CONFIG)
 try:
     sf.connect()
-    data = sf.get_all(clinic_key=3743, pp_start=pp['start'], pp_end=pp['end'])
+    data = sf.get_all(clinic_key=CLINIC_KEY, pp_start=pp['start'], pp_end=pp['end'])
 
     # ---------------------------------------------------------------
     # Validate each query

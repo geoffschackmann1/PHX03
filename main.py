@@ -1,10 +1,10 @@
 """
 QPi Scorecard Automation — Main Orchestrator
+American Premier Home Health
+
 Usage:
     python main.py                        # Auto-detect most recent completed pay period
     python main.py --pp 4                 # Run for specific pay period
-    python main.py --pp 4 --agency 3743   # Single agency
-    python main.py --pp 4 --all-agencies  # All agencies
     python main.py --pp 4 --trend         # Include prior period comparison
     python main.py --pp 4 --trend --log-file output/qpi.log  # With log file
 """
@@ -24,7 +24,7 @@ import pandas as pd
 from config import (
     SNOWFLAKE_CONFIG, ISOLVED_MODE, ISOLVED_CSV_DIR,
     ISOLVED_API_CONFIG, FINCH_API_CONFIG,
-    AGENCIES, DEFAULT_CLINIC_KEY,
+    AGENCY, CLINIC_KEY,
     OUTPUT_DIR, INPUT_DIR,
     get_pay_period, get_prior_period,
 )
@@ -68,12 +68,11 @@ def _validate_env() -> None:
 
 
 def run_scorecard(
-    clinic_key: int,
     pp_number: int = None,
     include_trend: bool = False,
 ):
     """
-    Run the full QPi scorecard pipeline for one agency and one pay period.
+    Run the full QPi scorecard pipeline for one pay period.
 
     Steps:
     1. Calculate pay period dates
@@ -83,17 +82,12 @@ def run_scorecard(
     5. Generate Excel workbook
     6. (Optional) Pull prior period for trending
     """
-    agency = AGENCIES.get(clinic_key)
-    if not agency:
-        logger.error(f"Unknown clinic_key: {clinic_key}")
-        return None
-
     # ------------------------------------------------------------------
     # Step 1: Pay period
     # ------------------------------------------------------------------
     pp = get_pay_period(pp_number)
     logger.info(f"{'='*60}")
-    logger.info(f"QPi SCORECARD: {agency.name}")
+    logger.info(f"QPi SCORECARD: {AGENCY.name}")
     logger.info(f"Pay Period: {pp['label']} ({pp['range_str']})")
     logger.info(f"{'='*60}")
 
@@ -103,7 +97,7 @@ def run_scorecard(
     sf = SnowflakeClient(SNOWFLAKE_CONFIG)
     try:
         sf.connect()
-        sf_data = sf.get_all(clinic_key, pp["start"], pp["end"])
+        sf_data = sf.get_all(CLINIC_KEY, pp["start"], pp["end"])
 
         # Prior period (for trending)
         prior_prod = None
@@ -111,8 +105,8 @@ def run_scorecard(
         if include_trend:
             prior_pp = get_prior_period(pp)
             logger.info(f"Pulling prior period: {prior_pp['label']} ({prior_pp['range_str']})")
-            prior_prod = sf.get_clinician_productivity(clinic_key, prior_pp["start"], prior_pp["end"])
-            prior_docs = sf.get_documentation(clinic_key, prior_pp["start"], prior_pp["end"])
+            prior_prod = sf.get_clinician_productivity(CLINIC_KEY, prior_pp["start"], prior_pp["end"])
+            prior_docs = sf.get_documentation(CLINIC_KEY, prior_pp["start"], prior_pp["end"])
     finally:
         sf.close()
 
@@ -130,7 +124,7 @@ def run_scorecard(
     )
 
     try:
-        payroll_df = payroll_adapter.get_payroll(pp["start"], pp["end"], agency.name)
+        payroll_df = payroll_adapter.get_payroll(pp["start"], pp["end"], AGENCY.name)
         logger.info(f"iSolved: {len(payroll_df)} employees loaded")
     except NotImplementedError as e:
         logger.warning(f"iSolved adapter not available: {e}")
@@ -155,27 +149,26 @@ def run_scorecard(
     # ------------------------------------------------------------------
     # Step 5: Generate outputs
     # ------------------------------------------------------------------
-    output_dir = Path(OUTPUT_DIR) / f"{pp['label']}_{agency.short_code}"
+    output_dir = Path(OUTPUT_DIR) / f"{pp['label']}_{AGENCY.short_code}"
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # Excel workbook
-    xlsx_path = output_dir / f"QPi_Scorecard_{agency.short_code}_{pp['label']}.xlsx"
+    xlsx_path = output_dir / f"QPi_Scorecard_{AGENCY.short_code}_{pp['label']}.xlsx"
     build_workbook(
         clinician_df=clinician_df,
         agency_metrics=agency_metrics,
         pay_period=pp,
-        clinic_key=clinic_key,
         output_path=xlsx_path,
     )
 
     # CSV export (for downstream tools / BI)
-    csv_path = output_dir / f"QPi_Clinician_Data_{agency.short_code}_{pp['label']}.csv"
+    csv_path = output_dir / f"QPi_Clinician_Data_{AGENCY.short_code}_{pp['label']}.csv"
     clinician_df.to_csv(csv_path, index=False)
     logger.info(f"CSV exported: {csv_path}")
 
     # Summary
     logger.info(f"\n{'='*60}")
-    logger.info(f"SCORECARD COMPLETE: {agency.name} — {pp['label']}")
+    logger.info(f"SCORECARD COMPLETE: {AGENCY.name} — {pp['label']}")
     logger.info(f"{'='*60}")
     logger.info(f"Clinicians: {len(clinician_df)}")
     logger.info(f"Total Visits: {clinician_df['total_visits'].sum()}")
@@ -199,13 +192,9 @@ def run_scorecard(
 
 
 def main():
-    parser = argparse.ArgumentParser(description="QPi Scorecard Automation")
+    parser = argparse.ArgumentParser(description="QPi Scorecard — American Premier Home Health")
     parser.add_argument("--pp", type=int, default=None,
                         help="Pay period number (0 or omit = most recent completed)")
-    parser.add_argument("--agency", type=int, default=DEFAULT_CLINIC_KEY,
-                        help=f"Clinic key (default: {DEFAULT_CLINIC_KEY})")
-    parser.add_argument("--all-agencies", action="store_true",
-                        help="Run for all agencies")
     parser.add_argument("--trend", action="store_true",
                         help="Include prior period comparison")
     parser.add_argument("--isolved-mode", choices=["csv", "api", "finch"],
@@ -231,33 +220,7 @@ def main():
         import config
         config.ISOLVED_MODE = args.isolved_mode
 
-    if args.all_agencies:
-        results = {}
-        for ck, agency in AGENCIES.items():
-            logger.info(f"\n{'#'*60}")
-            logger.info(f"PROCESSING: {agency.name} (CK={ck})")
-            logger.info(f"{'#'*60}")
-            try:
-                results[ck] = run_scorecard(ck, args.pp, args.trend)
-            except Exception as e:
-                logger.error(f"FAILED: {agency.name}: {e}", exc_info=True)
-                results[ck] = None
-
-        # Summary
-        failed_count = sum(1 for r in results.values() if r is None)
-        logger.info(f"\n{'='*60}")
-        logger.info("ALL AGENCIES COMPLETE")
-        logger.info(f"{'='*60}")
-        for ck, res in results.items():
-            agency = AGENCIES[ck]
-            if res:
-                logger.info(f"  {agency.name}: {res['xlsx_path']}")
-            else:
-                logger.info(f"  {agency.name}: FAILED")
-        if failed_count > 0:
-            sys.exit(1)
-    else:
-        run_scorecard(args.agency, args.pp, args.trend)
+    run_scorecard(args.pp, args.trend)
 
 
 if __name__ == "__main__":

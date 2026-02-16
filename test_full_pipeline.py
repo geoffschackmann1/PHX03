@@ -13,6 +13,7 @@ import pandas as pd
 
 from config import (
     SNOWFLAKE_CONFIG, ISOLVED_MODE, ISOLVED_CSV_DIR,
+    AGENCY, CLINIC_KEY,
     get_pay_period, get_prior_period,
 )
 from snowflake_client import SnowflakeClient
@@ -22,9 +23,9 @@ from excel_builder import build_workbook
 
 print("=" * 60)
 print("QPi SCORECARD — FULL PIPELINE TEST")
+print(f"Agency: {AGENCY.name}")
 print("=" * 60)
 
-clinic_key = 3743
 pp = get_pay_period(4)
 prior_pp = get_prior_period(pp)
 
@@ -38,9 +39,9 @@ print()
 print("STEP 1: Pulling Snowflake data...")
 sf = SnowflakeClient(SNOWFLAKE_CONFIG)
 sf.connect()
-sf_data = sf.get_all(clinic_key, pp['start'], pp['end'])
-prior_prod = sf.get_clinician_productivity(clinic_key, prior_pp['start'], prior_pp['end'])
-prior_docs = sf.get_documentation(clinic_key, prior_pp['start'], prior_pp['end'])
+sf_data = sf.get_all(CLINIC_KEY, pp['start'], pp['end'])
+prior_prod = sf.get_clinician_productivity(CLINIC_KEY, prior_pp['start'], prior_pp['end'])
+prior_docs = sf.get_documentation(CLINIC_KEY, prior_pp['start'], prior_pp['end'])
 sf.close()
 print(f"  Current period: {len(sf_data['productivity'])} clinicians")
 print(f"  Prior period:   {len(prior_prod)} clinicians")
@@ -108,7 +109,6 @@ build_workbook(
     clinician_df=clinician_df,
     agency_metrics=agency_metrics,
     pay_period=pp,
-    clinic_key=clinic_key,
     output_path=xlsx_path,
 )
 

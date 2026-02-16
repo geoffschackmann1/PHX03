@@ -56,14 +56,8 @@ class Agency:
     is_ppv: bool = False  # pay-per-visit region
 
 
-AGENCIES = {
-    3743: Agency("American Premier", 3743, "AP", "AZ", is_ppv=True),
-    11174: Agency("Casa Grande", 11174, "CG", "AZ", is_ppv=True),
-    11944: Agency("American Excel", 11944, "AE", "NV", is_ppv=True),
-}
-
-# Default agency for single-agency runs
-DEFAULT_CLINIC_KEY = 3743
+AGENCY = Agency("American Premier Home Health", 3743, "AP", "AZ", is_ppv=True)
+CLINIC_KEY = AGENCY.clinic_key
 
 
 # =============================================================================

@@ -14,7 +14,7 @@ import pandas as pd
 from load_env import load_dotenv
 load_dotenv()
 
-from config import get_pay_period, AGENCIES
+from config import get_pay_period, AGENCY, CLINIC_KEY
 from scorecard_engine import build_clinician_scorecard, build_agency_metrics, evaluate_target
 from excel_builder import build_workbook
 
@@ -170,14 +170,12 @@ def mock_prior_documentation() -> pd.DataFrame:
 
 def run_test():
     pp = get_pay_period(4)  # PP4: 1/25/2026 - 2/7/2026
-    clinic_key = 3743
-    agency = AGENCIES[clinic_key]
     errors = []
 
     print("=" * 60)
     print("QPi MOCK PIPELINE VALIDATION")
     print(f"Pay Period: {pp['label']} ({pp['range_str']})")
-    print(f"Agency: {agency.name} ({clinic_key})")
+    print(f"Agency: {AGENCY.name} (CK={CLINIC_KEY})")
     print("=" * 60)
 
     # ------------------------------------------------------------------
@@ -347,7 +345,7 @@ def run_test():
             clinician_df=df,
             agency_metrics=am,
             pay_period=pp,
-            clinic_key=clinic_key,
+    
             output_path=xlsx_path,
         )
     except Exception as e:
@@ -397,7 +395,7 @@ def run_test():
             clinician_df=df_trend,
             agency_metrics=am,
             pay_period=pp,
-            clinic_key=clinic_key,
+    
             output_path=xlsx_trend_path,
         )
         assert xlsx_trend_path.exists(), "Trend workbook not created"
@@ -451,26 +449,6 @@ def run_test():
         print(f"  FAIL: Single clinician crashed: {e}")
 
     # ------------------------------------------------------------------
-    # Test 13: Multi-agency
-    # ------------------------------------------------------------------
-    print("\n[TEST 13] Multi-agency workbook generation...")
-    for ck, ag in AGENCIES.items():
-        ag_path = output_dir / f"QPi_Scorecard_{ag.short_code}_PP4_MOCK.xlsx"
-        try:
-            build_workbook(
-                clinician_df=df,
-                agency_metrics=am,
-                pay_period=pp,
-                clinic_key=ck,
-                output_path=ag_path,
-            )
-            assert ag_path.exists(), f"{ag.name} workbook not created"
-            print(f"  PASS: {ag.name} ({ag.short_code}) workbook generated")
-        except Exception as e:
-            errors.append(f"{ag.name} workbook failed: {e}")
-            print(f"  FAIL: {ag.name}: {e}")
-
-    # ------------------------------------------------------------------
     # SUMMARY
     # ------------------------------------------------------------------
     print("\n" + "=" * 60)
@@ -481,7 +459,7 @@ def run_test():
         print("=" * 60)
         return False
     else:
-        print("VALIDATION COMPLETE: ALL 13 TESTS PASSED")
+        print("VALIDATION COMPLETE: ALL 12 TESTS PASSED")
         print(f"Output files in: {output_dir.resolve()}")
         print("=" * 60)
         return True

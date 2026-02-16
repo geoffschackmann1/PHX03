@@ -11,7 +11,7 @@ import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
-from config import TARGETS, AGENCIES
+from config import TARGETS, AGENCY
 from scorecard_engine import AgencyMetrics, evaluate_target
 
 logger = logging.getLogger(__name__)
@@ -72,16 +72,14 @@ def build_workbook(
     clinician_df: pd.DataFrame,
     agency_metrics: AgencyMetrics,
     pay_period: dict,
-    clinic_key: int,
     output_path: Path,
 ):
     """
     Build the full QPi scorecard Excel workbook.
-    Tabs: Clinician Scorecard, Efficiency Analysis, Cost Per Visit,
-          Documentation Detail, Agency Roll-Up, Executive Summary
+    Tabs: Clinician Scorecard, Agency Roll-Up,
+          Documentation Detail, Cost Per Visit
     """
-    agency = AGENCIES.get(clinic_key)
-    agency_name = agency.name if agency else f"Agency {clinic_key}"
+    agency_name = AGENCY.name
     pp_label = pay_period["label"]
     pp_range = pay_period["range_str"]
 

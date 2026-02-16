@@ -13,14 +13,9 @@ Automated Quality & Productivity Improvement (QPi) scorecard system for American
 - **All data processing happens in-memory via pandas** (no staging tables).
 - **Output**: Excel workbooks (openpyxl) + CSV exports.
 
-## Agencies
-| Agency | Clinic Key | Region |
-|--------|-----------|--------|
-| American Premier | 3743 | AZ |
-| Casa Grande | 11174 | AZ |
-| American Excel | 11944 | NV |
-
-All are pay-per-visit (PPV) regions — no actual hours from iSolved, estimate via best practice hours.
+## Agency
+- **American Premier Home Health** — Clinic Key: `3743`, Region: AZ, Pay-per-visit (PPV)
+- PPV region — no actual hours from iSolved, estimate via best practice hours.
 
 ## Pay Periods
 - Bi-weekly, Sunday–Saturday
