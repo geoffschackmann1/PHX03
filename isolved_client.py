@@ -146,25 +146,102 @@ class CSVPayrollAdapter(PayrollAdapter):
         # Otherwise try manual parsing
         return self._parse_payroll_register_manual(filepath)
 
+    # Column name patterns -> standardized names
+    # Order matters: more specific patterns first to avoid false matches
+    COLUMN_PATTERNS = [
+        # Identity
+        ("employee", "name", "clinician_name"),
+        ("associate", None, "associate_id"),
+        ("emp_id", None, "associate_id"),
+        ("employee_id", None, "associate_id"),
+        ("agency", None, "agency"),
+        ("discipline", None, "discipline"),
+        ("pay_type", None, "pay_type"),
+        ("pay type", None, "pay_type"),
+        ("status", None, "status"),
+        # Hours
+        ("regular", "hour", "regular_hours"),
+        ("overtime", "hour", "overtime_hours"),
+        ("ot_hour", None, "overtime_hours"),
+        ("ot hour", None, "overtime_hours"),
+        # Pay
+        ("pay_rate", None, "pay_rate"),
+        ("pay rate", None, "pay_rate"),
+        ("gross", None, "gross_wages"),
+        ("mileage", None, "mileage"),
+        # Time off
+        ("vacation", None, "vacation_hours"),
+        ("pto", None, "pto_hours"),
+        ("sick", None, "sick_hours"),
+        ("holiday", None, "holiday_hours"),
+        ("bereavement", None, "bereavement_hours"),
+        # On call
+        ("on_call_weekday", None, "on_call_weekday"),
+        ("on call weekday", None, "on_call_weekday"),
+        ("on_call_weekend", None, "on_call_weekend"),
+        ("on call weekend", None, "on_call_weekend"),
+        ("on_call_pay", None, "on_call_pay"),
+        ("on call pay", None, "on_call_pay"),
+        # Earnings-code visit counts (from iSolved)
+        ("hh soc", None, "isolved_soc_ct"),
+        ("hh roc", None, "isolved_roc_ct"),
+        ("ot eval", None, "isolved_eval_ct"),
+        ("hh regular visit", None, "isolved_visit_ct"),
+        ("hh rgular visit", None, "isolved_visit_ct"),  # iSolved typo
+        ("hh lpn visit", None, "isolved_lpn_visit_ct"),
+        ("hh pta visit", None, "isolved_pta_visit_ct"),
+    ]
+
     def _normalize_standard_csv(self, df: pd.DataFrame) -> pd.DataFrame:
         """Normalize a standard tabular CSV export."""
-        # Map common column name variations
         col_map = {}
+        mapped_targets = set()  # avoid double-mapping to same target
         for col in df.columns:
             cl = col.lower().strip()
-            if "employee" in cl or "name" in cl:
-                col_map[col] = "clinician_name"
-            elif "associate" in cl or "emp_id" in cl:
-                col_map[col] = "associate_id"
-            elif "regular" in cl and "hour" in cl:
-                col_map[col] = "regular_hours"
-            elif "overtime" in cl or "ot_hour" in cl:
-                col_map[col] = "overtime_hours"
-            elif "gross" in cl:
-                col_map[col] = "gross_wages"
+            for primary, secondary, target in self.COLUMN_PATTERNS:
+                if target in mapped_targets:
+                    continue
+                if secondary:
+                    if primary in cl and secondary in cl:
+                        col_map[col] = target
+                        mapped_targets.add(target)
+                        break
+                else:
+                    if cl == primary or cl.replace(" ", "_") == primary.replace(" ", "_"):
+                        col_map[col] = target
+                        mapped_targets.add(target)
+                        break
 
         df = df.rename(columns=col_map)
-        return self._fill_defaults(df)
+
+        # Uppercase clinician names for consistent merge
+        if "clinician_name" in df.columns:
+            df["clinician_name"] = df["clinician_name"].astype(str).str.upper().str.strip()
+
+        # Sum assistant visit columns into isolved_visit_ct if present
+        for aux_col in ["isolved_lpn_visit_ct", "isolved_pta_visit_ct"]:
+            if aux_col in df.columns:
+                df[aux_col] = pd.to_numeric(df[aux_col], errors="coerce").fillna(0)
+                df["isolved_visit_ct"] = df.get("isolved_visit_ct", 0) + df[aux_col]
+                df.drop(columns=[aux_col], inplace=True)
+
+        # Compute total_cost and time_off_hours
+        df = self._fill_defaults(df)
+        df = self._compute_derived(df)
+        return df
+
+    def _compute_derived(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Compute total_cost and time_off_hours from component columns."""
+        for col in list(PAYROLL_SCHEMA.keys()):
+            if col in df.columns and PAYROLL_SCHEMA[col] in (float, int):
+                df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
+
+        df["time_off_hours"] = (
+            df["vacation_hours"] + df["pto_hours"] + df["sick_hours"]
+            + df["holiday_hours"] + df["bereavement_hours"]
+        )
+        df["total_cost"] = df["gross_wages"] + df["mileage"]
+        return df
 
     def _parse_payroll_register_manual(self, filepath: Path) -> pd.DataFrame:
         """

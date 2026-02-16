@@ -180,6 +180,18 @@ SCORED_VISIT_CATEGORIES = [
 
 
 # =============================================================================
+# CLINICIAN NAME ALIASES (iSolved -> Snowflake)
+# =============================================================================
+# When iSolved spells a name differently than Snowflake, add it here.
+# Key = iSolved name (UPPERCASE), Value = Snowflake name (UPPERCASE).
+# Run the pipeline once, check the "Unmatched" log lines, and populate.
+CLINICIAN_NAME_ALIASES: dict[str, str] = {
+    # "DAVE BERRY": "DAVID BERRY",
+    # "JENNY SMITH": "JENNIFER SMITH",
+}
+
+
+# =============================================================================
 # REPORT VERSION
 # =============================================================================
 REPORT_VERSION = "1.0"
