@@ -4,14 +4,14 @@ Generates the multi-tab scorecard workbook and individual clinician PDFs.
 """
 import logging
 from pathlib import Path
-from datetime import date
+from datetime import date, datetime
 
 import pandas as pd
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
-from config import TARGETS, AGENCY
+from config import TARGETS, AGENCY, REPORT_VERSION
 from scorecard_engine import AgencyMetrics, evaluate_target
 
 logger = logging.getLogger(__name__)
@@ -97,6 +97,9 @@ def build_workbook(
     ws1.merge_cells("A1:AB1")
     ws1["A2"] = f"{pp_range}  |  Source: Snowflake + iSolved"
     ws1["A2"].font = Font(name='Arial', size=9, italic=True, color='666666')
+    generated = datetime.now().strftime("%m/%d/%Y %I:%M %p")
+    ws1["A3"] = f"Report v{REPORT_VERSION}  |  Generated: {generated}"
+    ws1["A3"].font = Font(name='Arial', size=9, italic=True, color='999999')
 
     heads = [
         "Clinician", "Disc", "Type", "Skill",
@@ -108,7 +111,7 @@ def build_workbook(
         "On-Time %", "Accuracy %", "Missed %",
         "Total Cost", "CPV",
     ]
-    hr = 4
+    hr = 5
     for ci, h in enumerate(heads, 1):
         ws1.cell(row=hr, column=ci, value=h)
     _header_row(ws1, hr, len(heads))
@@ -168,7 +171,7 @@ def build_workbook(
     widths = [22, 6, 8, 10, 6, 6, 6, 6, 6, 7, 8, 9, 8, 8, 7, 8, 8, 8, 7, 9, 8, 8, 9, 10, 10, 9, 12, 10]
     for i, w in enumerate(widths, 1):
         ws1.column_dimensions[get_column_letter(i)].width = w
-    ws1.freeze_panes = "A5"
+    ws1.freeze_panes = "A6"
 
     # ==================================================================
     # TAB 2: AGENCY ROLL-UP
@@ -178,6 +181,8 @@ def build_workbook(
 
     ws2["B2"] = f"{agency_name} — Agency QPi Roll-Up ({pp_label})"
     ws2["B2"].font = TF
+    ws2["B3"] = f"Report v{REPORT_VERSION}  |  Generated: {generated}"
+    ws2["B3"].font = Font(name='Arial', size=9, italic=True, color='999999')
 
     def _agency_row(ws, r, kpi, val, tgt, status):
         ws.cell(row=r, column=2, value=kpi).font = BF
