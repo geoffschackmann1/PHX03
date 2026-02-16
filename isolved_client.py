@@ -9,7 +9,7 @@ import re
 from abc import ABC, abstractmethod
 from datetime import date
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional
 
 import pandas as pd
 
@@ -102,27 +102,39 @@ class CSVPayrollAdapter(PayrollAdapter):
     def __init__(self, csv_dir: str):
         self.csv_dir = Path(csv_dir)
 
-    def _find_csv(self, pp_start: date, pp_end: date) -> Optional[Path]:
-        """Find the CSV file matching the pay period."""
+    def _find_csvs(self, pp_start: date, pp_end: date) -> List[Path]:
+        """Find all CSV files matching the pay period (supports multiple reports)."""
         if not self.csv_dir.exists():
             logger.warning(f"CSV directory not found: {self.csv_dir}")
-            return None
+            return []
+
+        # Skip template files
+        skip = {"template"}
 
         # Try matching by date in filename
         start_str = pp_start.strftime("%Y%m%d")
         end_str = pp_end.strftime("%Y%m%d")
 
+        matched = []
         for f in self.csv_dir.glob("*.csv"):
+            if any(s in f.name.lower() for s in skip):
+                continue
             if start_str in f.name or end_str in f.name:
-                return f
+                matched.append(f)
+
+        if matched:
+            return sorted(matched)
 
         # Fallback: return most recent CSV
-        csvs = sorted(self.csv_dir.glob("*.csv"), key=os.path.getmtime, reverse=True)
+        csvs = sorted(
+            [f for f in self.csv_dir.glob("*.csv") if not any(s in f.name.lower() for s in skip)],
+            key=os.path.getmtime, reverse=True,
+        )
         if csvs:
             logger.warning(f"No date-matched CSV found, using most recent: {csvs[0].name}")
-            return csvs[0]
+            return [csvs[0]]
 
-        return None
+        return []
 
     def _parse_payroll_register(self, filepath: Path) -> pd.DataFrame:
         """
@@ -202,15 +214,45 @@ class CSVPayrollAdapter(PayrollAdapter):
         ("hh pta visit", None, "isolved_pta_visit_ct"),
     ]
 
-    # Exact column name overrides for Employee Earnings Summary format
+    # iSolved Position -> QPi discipline mapping
+    POSITION_TO_DISCIPLINE = {
+        "PT": "PT",
+        "PTA": "PTA",
+        "RN": "SN",          # Snowflake uses "SN" for RN
+        "LPNLVN": "LPN/LVN",
+        "LPN": "LPN/LVN",
+        "LVN": "LPN/LVN",
+        "OCCTHE": "OT",       # Occupational Therapist
+        "OT": "OT",
+        "COTA": "COTA",
+        "ST": "ST",
+        "SLP": "ST",
+        "MSW": "MSW",
+        "HHA": "HHA",
+    }
+
+    # Exact column name overrides for iSolved report formats
     EXACT_COLUMN_MAP = {
+        # Employee Earnings Summary columns
         "emp #": "associate_id",
+        "employee #": "associate_id",
         "employee name": "clinician_name",
         "name": "clinician_name",
         "gross wage": "gross_wages",
         "gross wages": "gross_wages",
+        "w2 gross wages": "gross_wages",
         "1099/exp reimburse": "mileage",
         "paid earnings": "_paid_earnings",  # duplicate of gross, ignored
+        "regular earnings": "_regular_earnings",  # duplicate, ignored
+        "ot earnings": "_ot_earnings",  # captured via overtime_hours instead
+        # Hours & Earnings columns
+        "regular hours": "regular_hours",
+        "ot hours": "overtime_hours",
+        "total hours": "_total_hours",  # derived, ignored
+        "department": "_department",
+        "position": "_position",   # mapped to discipline via POSITION_TO_DISCIPLINE
+        "ssn": "_ssn",            # PII — drop immediately
+        # Shared columns
         "agency": "agency",
         "discipline": "discipline",
         "pay_type": "pay_type",
@@ -257,8 +299,15 @@ class CSVPayrollAdapter(PayrollAdapter):
 
         df = df.rename(columns=col_map)
 
-        # Drop internal-only columns
-        df.drop(columns=["_paid_earnings"], inplace=True, errors="ignore")
+        # Map Position to discipline if present
+        if "_position" in df.columns:
+            df["discipline"] = df["_position"].astype(str).str.upper().str.strip().map(
+                self.POSITION_TO_DISCIPLINE
+            ).fillna("")
+
+        # Drop internal-only and PII columns
+        internal_cols = [c for c in df.columns if c.startswith("_")]
+        df.drop(columns=internal_cols, inplace=True, errors="ignore")
 
         # Strip commas from numeric strings and convert
         for col in df.columns:
@@ -391,12 +440,74 @@ class CSVPayrollAdapter(PayrollAdapter):
         return df
 
     def get_payroll(self, pp_start: date, pp_end: date, agency: Optional[str] = None) -> pd.DataFrame:
-        filepath = self._find_csv(pp_start, pp_end)
-        if filepath is None:
+        filepaths = self._find_csvs(pp_start, pp_end)
+        if not filepaths:
             logger.warning("No iSolved CSV found — returning empty DataFrame")
             return pd.DataFrame(columns=list(PAYROLL_SCHEMA.keys()))
 
-        df = self._parse_payroll_register(filepath)
+        # Parse each CSV
+        frames = []
+        for fp in filepaths:
+            frames.append(self._parse_payroll_register(fp))
+
+        if len(frames) == 1:
+            df = frames[0]
+        else:
+            # Merge multiple reports by clinician name.
+            # Each report contributes different columns (e.g., Earnings Summary
+            # has mileage, Hours & Earnings has hours and discipline).
+            df = frames[0]
+            for other in frames[1:]:
+                # Identify columns to bring in from other:
+                # 1. New columns not in df
+                # 2. Columns that are all-zero in df but have data in other
+                merge_cols = ["clinician_name"]
+                for c in other.columns:
+                    if c == "clinician_name":
+                        continue
+                    if c not in df.columns:
+                        merge_cols.append(c)
+                    elif c in df.columns:
+                        is_str = pd.api.types.is_string_dtype(df[c]) or df[c].dtype == object
+                        if is_str:
+                            # String: bring in if base is all empty
+                            if (df[c].fillna("") == "").all() and not (other[c].fillna("") == "").all():
+                                merge_cols.append(c)
+                        else:
+                            # Numeric: bring in if base is all zeros
+                            try:
+                                if (df[c].fillna(0) == 0).all() and not (other[c].fillna(0) == 0).all():
+                                    merge_cols.append(c)
+                            except TypeError:
+                                pass
+
+                if len(merge_cols) <= 1:
+                    continue
+
+                other_subset = other[merge_cols].copy()
+                df = df.merge(other_subset, on="clinician_name", how="left", suffixes=("", "_new"))
+
+                # For columns that appeared in both, take the new non-zero/non-empty value
+                for c in [x for x in df.columns if x.endswith("_new")]:
+                    base = c.replace("_new", "")
+                    if base in df.columns:
+                        is_str = pd.api.types.is_string_dtype(df[base]) or df[base].dtype == object
+                        if is_str:
+                            # String column: fill empties
+                            mask = df[base].fillna("").eq("")
+                            df.loc[mask, base] = df.loc[mask, c]
+                        else:
+                            # Numeric: cast to float64 to avoid int/float dtype conflicts
+                            df[base] = pd.to_numeric(df[base], errors="coerce").astype(float).fillna(0)
+                            new_vals = pd.to_numeric(df[c], errors="coerce").astype(float).fillna(0)
+                            mask = (df[base] == 0) & (new_vals != 0)
+                            df.loc[mask, base] = new_vals.loc[mask]
+                    df.drop(columns=[c], inplace=True)
+
+            logger.info(f"Merged {len(frames)} iSolved CSVs → {len(df)} employees")
+
+            # Recompute derived fields after merge
+            df = self._compute_derived(df)
 
         if agency and "agency" in df.columns:
             df = df[df["agency"].str.contains(agency, case=False, na=False)]
