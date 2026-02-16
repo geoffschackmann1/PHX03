@@ -260,7 +260,7 @@ class SnowflakeClient:
             connect_args["password"] = self.config["password"]
             logger.info("Connecting to Snowflake with password auth...")
         else:
-            raise ValueError("No Snowflake auth configured. Set SF_PRIVATE_KEY_PATH or SF_PASSWORD.")
+            raise ValueError("No Snowflake auth configured. Set SNOWFLAKE_PRIVATE_KEY_PATH or SNOWFLAKE_PASSWORD.")
 
         self.conn = snowflake.connector.connect(**connect_args)
         

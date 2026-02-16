@@ -27,7 +27,7 @@ print()
 # Check auth is configured
 if not SNOWFLAKE_CONFIG['private_key_path'] and not SNOWFLAKE_CONFIG['password']:
     print("ERROR: No authentication configured!")
-    print("Edit .env and set either SF_PRIVATE_KEY_PATH or SF_PASSWORD")
+    print("Edit .env and set either SNOWFLAKE_PRIVATE_KEY_PATH or SNOWFLAKE_PASSWORD")
     sys.exit(1)
 
 from snowflake_client import SnowflakeClient
@@ -64,12 +64,12 @@ except Exception as e:
     print(f"FAILED: {e}")
     print()
     print("Troubleshooting:")
-    print("  1. SF_ACCOUNT: Just the hostname, no https://")
+    print("  1. SNOWFLAKE_ACCOUNT: Just the hostname, no https://")
     print("     Example: wellsky_abc123.snowflakecomputing.com")
-    print("  2. SF_USER: Your Snowflake service user (e.g., COMPANY_SNOWFLAKE_SVC)")
-    print("  3. SF_PRIVATE_KEY_PATH: Full path to your .p8 file (not ~)")
+    print("  2. SNOWFLAKE_USER: Your Snowflake service user (e.g., COMPANY_SNOWFLAKE_SVC)")
+    print("  3. SNOWFLAKE_PRIVATE_KEY_PATH: Full path to your .p8 file (not ~)")
     print("     Example: /Users/yourname/.snowflake/keys/rsa_key.p8")
-    print("  4. If using password, set SF_PASSWORD in .env")
+    print("  4. If using password, set SNOWFLAKE_PASSWORD in .env")
     print("  5. Check key file permissions: chmod 600 on .p8 file")
     print()
     import traceback

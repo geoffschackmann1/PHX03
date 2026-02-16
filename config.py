@@ -12,15 +12,15 @@ import os
 # SNOWFLAKE CONNECTION
 # =============================================================================
 SNOWFLAKE_CONFIG = {
-    "account": os.getenv("SF_ACCOUNT", "your_account.snowflakecomputing.com"),
-    "user": os.getenv("SF_USER", ""),
-    "role": os.getenv("SF_ROLE", "READER"),
-    "warehouse": os.getenv("SF_WAREHOUSE", "WH_HEALTH_MAX_GROUP_10026_XSM"),
+    "account": os.getenv("SNOWFLAKE_ACCOUNT", "your_account.snowflakecomputing.com"),
+    "user": os.getenv("SNOWFLAKE_USER", ""),
+    "role": os.getenv("SNOWFLAKE_ROLE", "HEALTH_MAX_GROUP_SNOWFLAKE_ADMIN"),
+    "warehouse": os.getenv("SNOWFLAKE_WAREHOUSE", "WH_HEALTH_MAX_GROUP_10026_XSM"),
     "database": "WS_HHH_BI_DW_READONLY",
     "schema": "WS",
     # Auth: key pair (preferred) or password
-    "private_key_path": os.getenv("SF_PRIVATE_KEY_PATH", ""),
-    "password": os.getenv("SF_PASSWORD", ""),
+    "private_key_path": os.getenv("SNOWFLAKE_PRIVATE_KEY_PATH", ""),
+    "password": os.getenv("SNOWFLAKE_PASSWORD", ""),
 }
 
 

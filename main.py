@@ -51,19 +51,19 @@ def _validate_env() -> None:
         logger.error("No .env file found. Copy .env.template to .env and fill in values.")
         sys.exit(1)
 
-    account = os.getenv("SF_ACCOUNT", "").strip()
-    user = os.getenv("SF_USER", "").strip()
-    password = os.getenv("SF_PASSWORD", "").strip()
-    key_path = os.getenv("SF_PRIVATE_KEY_PATH", "").strip()
+    account = os.getenv("SNOWFLAKE_ACCOUNT", "").strip()
+    user = os.getenv("SNOWFLAKE_USER", "").strip()
+    password = os.getenv("SNOWFLAKE_PASSWORD", "").strip()
+    key_path = os.getenv("SNOWFLAKE_PRIVATE_KEY_PATH", "").strip()
 
     if not account:
-        logger.error("SF_ACCOUNT is not set in .env")
+        logger.error("SNOWFLAKE_ACCOUNT is not set in .env")
         sys.exit(1)
     if not user:
-        logger.error("SF_USER is not set in .env")
+        logger.error("SNOWFLAKE_USER is not set in .env")
         sys.exit(1)
     if not password and not key_path:
-        logger.error("Set either SF_PASSWORD or SF_PRIVATE_KEY_PATH in .env")
+        logger.error("Set either SNOWFLAKE_PASSWORD or SNOWFLAKE_PRIVATE_KEY_PATH in .env")
         sys.exit(1)
 
 
