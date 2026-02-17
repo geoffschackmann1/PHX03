@@ -32,6 +32,7 @@ from snowflake_client import SnowflakeClient
 from isolved_client import get_payroll_adapter
 from scorecard_engine import build_clinician_scorecard, build_agency_metrics
 from excel_builder import build_workbook
+from pdf_builder import build_all_clinician_pdfs
 
 # =============================================================================
 # LOGGING
@@ -70,6 +71,7 @@ def _validate_env() -> None:
 def run_scorecard(
     pp_number: int = None,
     include_trend: bool = False,
+    generate_pdf: bool = False,
 ):
     """
     Run the full QPi scorecard pipeline for one pay period.
@@ -166,6 +168,16 @@ def run_scorecard(
     clinician_df.to_csv(csv_path, index=False)
     logger.info(f"CSV exported: {csv_path}")
 
+    # Individual clinician PDFs
+    pdf_paths = []
+    if generate_pdf:
+        pdf_paths = build_all_clinician_pdfs(
+            clinician_df=clinician_df,
+            pay_period=pp,
+            output_dir=output_dir,
+        )
+        logger.info(f"PDFs generated: {len(pdf_paths)} clinician scorecards")
+
     # Summary
     logger.info(f"\n{'='*60}")
     logger.info(f"SCORECARD COMPLETE: {AGENCY.name} — {pp['label']}")
@@ -188,6 +200,7 @@ def run_scorecard(
         "pay_period": pp,
         "xlsx_path": xlsx_path,
         "csv_path": csv_path,
+        "pdf_paths": pdf_paths,
     }
 
 
@@ -197,6 +210,8 @@ def main():
                         help="Pay period number (0 or omit = most recent completed)")
     parser.add_argument("--trend", action="store_true",
                         help="Include prior period comparison")
+    parser.add_argument("--pdf", action="store_true",
+                        help="Generate individual clinician PDF scorecards")
     parser.add_argument("--isolved-mode", choices=["csv", "api", "finch"],
                         default=None, help="Override iSolved mode")
     parser.add_argument("--log-file", type=str, default=None,
@@ -220,7 +235,7 @@ def main():
         import config
         config.ISOLVED_MODE = args.isolved_mode
 
-    run_scorecard(args.pp, args.trend)
+    run_scorecard(args.pp, args.trend, args.pdf)
 
 
 if __name__ == "__main__":
