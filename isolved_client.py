@@ -139,8 +139,14 @@ class CSVPayrollAdapter(PayrollAdapter):
             # Fall back to line-by-line parsing
             return self._parse_payroll_register_manual(filepath)
 
-        # If it has standard columns, process normally
-        if "Employee" in raw.columns or "employee_name" in raw.columns:
+        # Standard flat CSV: has clinician/employee name or key payroll fields
+        name_cols = [c for c in raw.columns if any(
+            x in c.lower() for x in ("employee", "clinician", "name")
+        )]
+        payroll_cols = [c for c in raw.columns if any(
+            x in c.lower() for x in ("regular", "gross", "hour", "wage", "overtime")
+        )]
+        if name_cols or payroll_cols:
             return self._normalize_standard_csv(raw)
 
         # Otherwise try manual parsing
@@ -152,7 +158,7 @@ class CSVPayrollAdapter(PayrollAdapter):
         col_map = {}
         for col in df.columns:
             cl = col.lower().strip()
-            if "employee" in cl or "name" in cl:
+            if "employee" in cl or "clinician" in cl or "name" in cl:
                 col_map[col] = "clinician_name"
             elif "associate" in cl or "emp_id" in cl:
                 col_map[col] = "associate_id"
@@ -162,9 +168,33 @@ class CSVPayrollAdapter(PayrollAdapter):
                 col_map[col] = "overtime_hours"
             elif "gross" in cl:
                 col_map[col] = "gross_wages"
+            elif "mileage" in cl:
+                col_map[col] = "mileage"
+            elif "total_cost" in cl or ("total" in cl and "cost" in cl):
+                col_map[col] = "total_cost"
+            elif "vacation" in cl and "hour" in cl:
+                col_map[col] = "vacation_hours"
+            elif "pto" in cl and "hour" in cl:
+                col_map[col] = "pto_hours"
+            elif "sick" in cl and "hour" in cl:
+                col_map[col] = "sick_hours"
+            elif "holiday" in cl and "hour" in cl:
+                col_map[col] = "holiday_hours"
+            elif "bereavement" in cl and "hour" in cl:
+                col_map[col] = "bereavement_hours"
 
         df = df.rename(columns=col_map)
-        return self._fill_defaults(df)
+        df = self._fill_defaults(df)
+        # Compute total_cost from gross_wages + mileage when missing or zero
+        if "gross_wages" in df.columns and "mileage" in df.columns:
+            mask = (df["total_cost"].fillna(0) == 0) & (
+                (df["gross_wages"].fillna(0) != 0) | (df["mileage"].fillna(0) != 0)
+            )
+            if mask.any():
+                df.loc[mask, "total_cost"] = (
+                    df.loc[mask, "gross_wages"].fillna(0) + df.loc[mask, "mileage"].fillna(0)
+                )
+        return df
 
     def _parse_payroll_register_manual(self, filepath: Path) -> pd.DataFrame:
         """
@@ -239,7 +269,8 @@ class CSVPayrollAdapter(PayrollAdapter):
 
         df = self._parse_payroll_register(filepath)
 
-        if agency and "agency" in df.columns:
+        # Only filter by agency when the CSV has agency labels; otherwise keep all rows
+        if agency and "agency" in df.columns and df["agency"].astype(str).str.strip().ne("").any():
             df = df[df["agency"].str.contains(agency, case=False, na=False)]
 
         return df
